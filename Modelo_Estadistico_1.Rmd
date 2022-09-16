@@ -1,0 +1,456 @@
+---
+title: "Modelo_Estadistico_Base"
+author: "María del Carmen Vargas Villarreal"
+date: "5/9/2022"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Momento de Retroalimentación: Módulo 1 Construcción de un modelo estadístico base (Portafolio Implementación) 
+
+EL PROBLEMA
+
+La contaminación por mercurio de peces en el agua dulce comestibles es una amenaza directa contra nuestra salud. Se llevó a cabo un estudio reciente en 53 lagos de Florida con el fin de examinar los factores que influían en el nivel de contaminación por mercurio. 
+
+X1 = número de indentificación
+X2 = nombre del lago
+X3 = alcalinidad (mg/l de carbonato de calcio)
+X4 = PH
+X5 = calcio (mg/l)
+X6 = clorofila (mg/l)
+X7 = concentración media de mercurio (parte por millón) en el tejido muscular del grupo de peces estudiados en cada lago
+X8 = número de peces estudiados en el lago
+X9 = mínimo de la concentración de mercurio en cada grupo de peces
+X10 = máximo de la concentración de mercurio en cada grupo de peces
+X11 = estimación (mediante regresión) de la concentración de mercurio en el pez de 3 años (o promedio de mercurio cuando la edad no está disponible)
+X12 = indicador de la edad de los peces (0: jóvenes; 1: maduros)
+
+
+# 1) EXPLORACIÓN DE LA BASE DE DATOS
+
+# 1.- Accede a la base de datos
+```{r}
+datos_mercurio = read.csv(file = 'mercurio.csv')
+
+head(datos_mercurio)
+```
+
+# 2.- Explora las variables 
+```{r}
+print("Cantida de renglones")
+nrow(datos_mercurio)
+
+print("Cantidad de columnas")
+ncol(datos_mercurio)
+
+sapply(datos_mercurio, class)
+```
+
+#3.- Exploración de la base de datos
+
+## 3.1) Calcula medidas estadísticas: Variables cuantitativas
+```{r}
+# Medidas de tendencia central: promedio, media y mediana
+# Medidas de dispersión: rango: máximo - mínimo, varianza
+
+summary(datos_mercurio)
+```
+
+```{r}
+# Medidas de dispersión: desviación estándar
+
+library(tidyr)
+library(dplyr)
+data_long <- gather(datos_mercurio, factor_key=TRUE)
+
+data_long%>% group_by(key)%>%
+  summarise(sd= sd(value))
+```
+
+## 3.2) Explora los datos usando herramientas de visualización
+
+### Medidas de posición: cuartiles, outlier (valores atípicos), boxplots. Análisis de Outliers
+```{r}
+df_numericas = subset(datos_mercurio, select = -c(X1,X2)) # X1 es integer y X2 es character
+data_long <- df_numericas %>%                        
+  pivot_longer(colnames(df_numericas)) %>% 
+  as.data.frame()
+head(data_long)
+```
+
+Se separan solo las variables númericas
+```{r}
+library(tidyr)
+library(ggplot2)
+df_tidy <- gather(df_numericas, cols, value) 
+ggplot(df_tidy, aes(x = cols, y=value)) + 
+  geom_boxplot(aes(fill=cols))
+```
+
+Para X6 "Clorofila" (mg/l)
+```{r}
+upper_bound <- quantile(datos_mercurio$X6, 0.99)
+upper_bound
+
+outlier_ind <- which(datos_mercurio$X6 > upper_bound)
+
+datos_mercurio[outlier_ind, ]
+```
+
+
+
+Para X8 "Número de peces estudiados en el lago"
+```{r}
+upper_bound <- quantile(datos_mercurio$X8, 0.99)
+upper_bound
+
+outlier_ind <- which(datos_mercurio$X8 > upper_bound)
+
+datos_mercurio[outlier_ind, ]
+```
+
+
+
+### Análisis de distribución de datos (Histogramas)
+
+Separación de variables númericas
+```{r}
+
+df_numericas = subset(datos_mercurio, select = -c(X1,X2)) # X1 es integer y X2 es character
+data_long <- df_numericas %>%                        
+  pivot_longer(colnames(df_numericas)) %>% 
+  as.data.frame()
+head(data_long)
+
+```
+
+```{r}
+library(ggplot2)
+ggp1 <- ggplot(data_long, aes(x = value)) +    # Se imprime cada columna como histograma
+  geom_histogram() + 
+  facet_wrap(~ name, scales = "free")
+ggp1
+```
+
+*Se puede observar que la variable X4 = PH es el histograma que representa mayor simetría, en contraste con el resto que se refleja simetría*
+
+
+# 3.3) Explora la correlación entre las variables.
+```{r}
+library(corrplot)
+v = cor(df_numericas)
+corrplot(v, method = 'number')
+```
+
+ 
+Interpretación:
+Tomando en cuenta que las siguientes variables:
+
+X9 = mínimo de la concentración de mercurio en cada grupo de peces
+X10 = máximo de la concentración de mercurio en cada grupo de peces
+X11 = estimación (mediante regresión) de la concentración de mercurio en el pez de 3 años (o promedio de mercurio cuando la edad no está disponible)
+
+Están muy correlacionadas sí y con respecto a la variable dependiente, siendo X7. Las correlaciones lineales entre pares de las variables mencionadas no deberían de exceder 0.5. 
+
+A este problema se le conoce colinealidad o multicolinealidad, que es cuando las variables predictoras del modelo se encuentran relacionadas. Es por esto que, para el modelo de regresión, se tomará la decisión de descartar algunas de estas variables para que no alteren los resultados del modelo, o la otra opción sería emplear un PCA y utilizar los componentes generados como nuevas variables independientes. Sin embargo, por motivos prácticos solo se recurrirá a eliminar las variables X9 y X10, y mantener la variable X10 ya que es la refleja mayor correlación con respecto a X7, la variable dependiente seleccionada.
+
+
+
+# 4.- Preguntas base 
+
+### ¿Cuáles son los principales factores que influyen en el nivel de contaminación por mercurio en los peces de los lagos de Florida?
+
+Primero, se realizará un análisis de regresión, independientemente de lo descubierto en la gráfica de correlación.
+De todas estas variables:
+
+X1 = número de indentificación
+X2 = nombre del lago
+X3 = alcalinidad (mg/l de carbonato de calcio)
+X4 = PH
+X5 = calcio (mg/l)
+X6 = clorofila (mg/l)
+X7 = concentración media de mercurio (parte por millón) en el tejido muscualar del grupo de peces estudiados en cada lago
+X8 = número de peces estudiados en el lago
+X9 = mínimo de la concentración de mercurio en cada grupo de peces
+X10 = máximo de la concentración de mercurio en cada grupo de peces
+X11 = estimación (mediante regresión) de la concentración de mercurio en el pez de 3 años (o promedio de mercurio cuando la edad no está disponible)
+X12 = indicador de la edad de los peces (0: jóvenes; 1: maduros)
+
+Se tomará a X7 como la variable dependiente, ya que se busca encontrar qué factores/variables influyen o explican en el nivel de contaminación/concentración por mercurio que describen dicha variable.
+
+### Modelo Inicial, el cual toma en cuenta todas las variables como las variables independientes, a excepción de X7 que es la dependiente
+
+
+```{r}
+modelo_1=lm(X7~.,data=df_numericas) 
+summary(modelo_1)
+```
+
+Interpretación: R^2 = 0.9742. Evidentemente el modelo es muy bueno a juzgar por el valor de R^2, la cual indica la cercanía de los datos a la línea de regresión ajustada, debido a que las variables X9, X10 Y X11 ya cuentan con la información directa de los niveles mínimos y máximos de concentración de mercurio, además de la estimación de (mediante regresión) de la concentración. 
+
+
+A continuación, se utiliza la siguiente linea de código que obtiene una serie de modelos con diferentes combinaciones de variables hasta dar con la combinación que maximiza la eficiencia, es decir, el modelo más óptimo.
+
+```{r}
+step(modelo_1,direction="both",trace=1) 
+```
+
+
+Interpretación: Evidentemente, el "mejor modelo" contiene las variables X9, X10 y X11, las cuales, como se ha mencionado anteriormente, ya dan información exacta sobre las concentraciones de mercurio en grupos de peces y la estimación en el pez de 3 años. 
+
+De todas formas, a continuación se genera el modelo correspondiente a la combinación de variables obtenidas en el paso anterior:
+
+
+```{r}
+modelo_1=lm(X7~X8+X9+X10+X11,data=df_numericas) 
+summary(modelo_1)
+```
+
+Interpretación: El modelo es casi perfecto, obteniéndose una valor R^2 = 0.9729
+
+
+### Segundo Modelo con variables de interés (ahora ya no tomando en cuenta X9 ni X10 ), para encontrar realmente qué factores influyen en el nivel de concentración de mercurio sin tomar en consideración las variable que contengan cualquier tipo de información previa sobre el mercurio, a excepción de la variable X11, de la cual la explicación del por qué se mantiene dentro del modelo ya fue anteriormete mencionada.
+
+### Segundo Modelo con variables de interés
+```{r}
+modelo_2=lm(X7~X3+X4+X5+X6+X8+X11+X12,data=df_numericas) 
+summary(modelo_2)
+```
+
+Ahora buscaremos la combinación de variables que aporten mayor valor al modelo: 
+
+```{r}
+step(modelo_2,direction="both",trace=1) 
+```
+Interpretación: Como se muestra en la última tabla, junto a las variables X3, X5, X8 y X11 se encuentra un signo de (-), lo cual indica que al descartar dichas variables el modelo empeorará en términos de eficencia. 
+
+Las variables X3 = alcalinidad (mg/l de carbonato de calcio), X5 = calcio (mg/l) y X8 = número de peces estudiados en el lago y X11 = estimación (mediante regresión) de la concentración de mercurio en el pez de 3 años (o promedio de mercurio cuando la edad no está disponible), son las que se tomarán en cuenta para el segundo modelo:
+
+```{r}
+segundo_modelo=lm(X7~X3+X5+X8+ X11,data=df_numericas) 
+summary_segundo_modelo = summary(segundo_modelo) 
+summary_segundo_modelo
+```
+
+Llevar a cabo una prueba de Hipotesis para verificar que B1 sea significativa con un nivel de confianza de 0.3 no es necesario debido a que la columna Pr(>|t|) de la tabla obtenida ya asocia el p-value junto el t-value. Si el p-value es menor al nivel de significancia, por ejemplo, alfa = 0.03, entonces la variable predictora tiene una relación significativa con la variable de respuesta del modelo. 
+
+X3: Pr(>|t|) = 0.1428 > 0.03, por lo que esta variable (X3 = alcalinidad mg/l de carbonato de calcio) no es significativa para el modelo
+
+
+X5: Pr(>|t|) = 0.0444 > 0.03, esta variable (calcio mg/l) por muy poco no es significativa para el modelo
+
+
+X8: Pr(>|t|) = 0.0842 > 0.03, por lo que esta variable (número de peces estudiados en el lago) no es significativa para el modelo
+
+
+X11:  Pr(>|t|) = <2e-16 < 0.03, si es muy significativa para el modelo. Tiene sentido ya que es la variable con más correlación. 
+
+
+Analizando la tabla más detalladamente, se puede observar que:
+
+- X11 es muy significativa ya que las *** indican que entra con todos los niveles de significancia.
+- X8 no es significativa ya que el (.) indica que entra con el nivel de significancia = 0.1, el cual es nivel bastante ineficiente. 
+- X5 es significativa que el * indica ue entra con el nivel de significancia = 0.05, el cual todavía es estadísticamente significativo.
+- X3, por último, no es signifcativa porque ni si quiera forma de ningún nivel de significancia.
+
+Por estas razones, descartar solamente X3 y X8 podría aportar mayormente al modelo.
+
+A continuación se realiza un 3er modelo considerando solo X5 y X11:
+
+```{r}
+tercer_modelo=lm(X7~X5+ X11,data=df_numericas) 
+summary_tercer_modelo = summary(tercer_modelo) 
+summary_tercer_modelo
+```
+Se obtuvo un R^2 = 0.9227, el cual no es tan diferente del modelo que utiliza X3 + X5 + X8 + X11 (Segundo Modelo). Esto me permite concluir que el modelo obtenido por el comando "step" utilizando el criterio estadístico AIC (donde se busca el valor más bajo posible), es mucho mejor que verificar la significancia de las variables y que además, este método sí toma en cuenta variables que verdaderamente aportan al modelo independientemente de las "contradicciones" que surjan a partir de la significancia. 
+
+Por esta razón, se continuará con la interpretación de los gráficos utilizando el Segundo Modelo.
+
+
+```{r}
+data_modelo2 <- data.frame(Predicted = predict(segundo_modelo),  
+                       Observed = df_numericas$X7)
+```
+
+```{r}
+ggplot(data_modelo2,                                     
+       aes(x = Predicted,
+           y = Observed)) +
+  geom_point() +
+  geom_abline(intercept = 0,
+              slope = 1,
+              color = "red",
+              size = 2)
+```
+
+
+# 1. ¿Hay evidencia para suponer que la concentración promedio de mercurio en los lagos es dañino para la salud humana?
+
+Las normativas de referencia para evaluar los niveles máximos de Hg (Reglamento 34687-MAG y los reglamentos internacionales CE 1881/2006 y Codex Standard 193-1995) establecen que la concentración promedio de mercurio en productos de la pesca no debe superar los 0.5 mg de Hg/kg.
+
+Se realiza una prueba de hipótesis para verificar si hay evidencia significativa para suponer que la concentración promedio de mercurio en los lagos es dañino para la salud humana con un nivel de significancia de 0.03. 
+
+$B_0$: Mu > 0.5
+$B_1$: Mu $\leq$ 0.5
+```{r}
+alpha = 0.03
+t0 = qt(alpha,length(df_numericas$X3))
+cat("t0 = ", t0)
+```
+```{r}
+m = mean(df_numericas$X7)
+s = sd(df_numericas$X7)
+n = length(df_numericas$X7)
+
+sm = s/sqrt(n)
+
+t = (m-0.5)/sm
+p = pt(t,n-2)
+
+cat("te = ", t, "\n")
+cat("p = ", p)
+```
+Debido a que el valor de |t|= 0.5799957  es mayor a |t0| = -1.921914, y el p-value = 0.7177644 es mayor a alpha = 0.03:
+
+
+No se rechaza la hipótesis nula, hay evidencia significativa para suponer que la concentración promedio de mercurio en los lagos es dañina para la salud humana. 
+
+
+# 2. ¿Habrá diferencia significativa entre la concentración de mercurio por la edad de los peces?
+
+```{r}
+jovenes = df_numericas[df_numericas$X12 == 0,]
+maduros = df_numericas[df_numericas$X12 == 1,]
+
+m1 = mean(jovenes$X7)
+m2 = mean(maduros$X7)
+
+cat("Promedio de concentración media de mercurio en los peces jóvenes: ",m1, "\n")
+cat("Promedio de concentración media de mercurio en los peces maduros: ", m2)
+```
+Se realiza una prueba de hipótesis para verificar si no hay una diferencia significativa entre la concentración de mercurio por la edad de los peces con un nivel de significancia de 0.03:
+
+$B_0$: $Mu_1$ = $Mu_2$
+$B_1$: $Mu_1$ $\neq$ $Mu_2$
+```{r}
+alpha = 0.03
+t0 = qt(alpha/2,length(df_numericas))
+cat("t0 = ", t0)
+```
+```{r}
+t.test(jovenes$X7, maduros$X7,
+       alternative = c("two.sided", "less", "greater"),
+       mu = 0, paired = FALSE, var.equal = FALSE,
+       conf.level = 0.97)
+
+```
+Debido a que el valor de |t|= -0.67932  es mayor a |t0| = -2.230086, y el p-value =  0.51 es mayor a alpha = 0.03:
+
+No se rechaza, no hay una diferencia significativa entre la concentración de mercurio por la edad de los peces con un nivel de significancia de 0.03
+
+
+
+### Verificación de Supuestos
+
+```{r}
+E=segundo_modelo$residuals  # Error: residuals
+Y=segundo_modelo$fitted.values # Y predicted
+ 
+qqnorm(E) 
+qqline(E,col="red") 
+```
+
+
+Interpretación: La mayoría de los valores estimados tienden a ajustarse a la recta roja diagonal, a excepción de aquellos puntos en los extremos que se desvían de la linea. De forma general, no se puede afirmar distribución normal de los datos ya que al final se forma una cola lateral en la parte derecha. Término: skewness
+
+
+```{r}
+hist(E,col="lightcyan",freq=FALSE,main="Histograma de 
+Residuos",ylim=c(0,6),xlim = c(-0.9,0.9),xlab="",ylab="Densidad") 
+lines(density(E),col="red") 
+curve(dnorm(x,mean=mean(E),sd=sd(E)), add=TRUE, col="blue",lwd=2)
+```
+Interpretación: Claramente la asimetría se refleja en este histograma, por lo que se reitera una distribución no normal de los datos del modelo. 
+
+
+
+```{r}
+shapiro.test(E)
+```
+La hipótesis nula del test Shapiro-Wilk es que la población representa una distribución normal. Por lo tanto, un valor de p < 0.05 indica que se debe rechazar la hipótesis nula. En otras palabras, los datos no poseen distribución normal.
+
+Para este caso, nuestro valor p-value = 0.008241 es menor a p = 0.005, por lo que se rechaza la hipótesis nula. 
+
+### Homocedasticidad y modelo apropiado
+
+```{r}
+plot(Y,E,ylab="Residuos",xlab="Valores estimados",pch=20,col="red") 
+abline(h=0,col="red") 
+text(Y[],E[],1:30,cex=0.8,pos=3,offset=0.2)
+```
+
+Los puntos no mantienen la misma dispersión en las distintas zonas de la variable X, por lo que se descarta el cumplimiento del parámetro de la homocedasticidad en el modelo. La varianza del error de la variable que está siendo predicha (o desviación estándar de la variable dependiente) no se mantiene uniforme con respecto a las variables independientes.
+
+
+### Independencia
+
+```{r}
+
+n=length(df_numericas$X6) 
+plot(c(1:n),df_numericas$residuals,type="l",xlab="Orden de las observaciones",ylab="Residuos") 
+abline(h=0,col="red") 
+
+```
+Interpretación: En esta gráfica no se detectan patrones por lo tanto. Lo que si se observa es que hay cambios de patrones ascendentes y descendentes en los residuales. 
+
+
+Conclusión final: 
+
+El modelo final fue, con una evaluación alta de 0.92 de r^2, indicando que el modelo es lo suficientemente bueno y se ajusta a la variable que se busca explicar  --> X7 = -0.003915 - 0.001073 X3 + 0.002008 X5 + 0.002744 X8 +  0.956615 X11  
+
+Recordando que: 
+
+
+X3 = alcalinidad (mg/l de carbonato de calcio)
+
+X5 = calcio (mg/l)
+
+X8 = número de peces estudiados en el lago
+
+X11 = estimación (mediante regresión) de la concentración de mercurio en el pez de 3 años (o promedio de mercurio cuando la edad no está disponible)
+
+Esto quiere decir que la concentración media de mercurio (parte por millón) en el tejido muscular del grupo de peces estudiados en cada lago disminuirá -0.003915 unidades si la alcalinidad, el calcio, número de peces estudiados y la estimación de la concentración en el pez de 3 años son cero.
+
+b1 = - 0.001073 X3, quiere decir que la concentración media de mercurio disminuirá - 0.001073 unidades de concentración media de mercurio  si se aumenta la alcalinidad mg/l en una unidad. 
+
+b2 = 0.002008 X5 quiere decir que la concentración media de mercurio aumentará 0.002008 unidades de concentración media de mercurio  si se aumenta el calcio mg/l en una unidad. 
+
+b3 = 0.002744 X8, quiere decir que la concentración media de mercurio aumentará aumentará 0.002744 unidades de concentración media de mercurio si se aumenta el número de peces estudiados en una unidad. 
+
+Por último, b4 = 0.956615 X11 , quiere decir que la concentración media de mercurio aumentará aumentará 0.956615 unidades de concentración media de mercurio si se aumenta la estimación de laconcentración de mercurio en el pez de 3 años (o promedio de mercurio cuando la edad no está disponible) en una unidad. 
+
+Cada una de estas interpretaciones individuales son válidas cuando el resto de los coeficientes se mantienen constantes. 
+
+
+Con este proyecto se logró construir un modelo estadístico a partir del set de datos mercurio.csv, utilizando variables que fueron seleccionadas con sustento de significancia estadística.  
+
+
+SMA0101A
+
+Construye un modelo estadístico base a partir de un set de datos, seleccionando las variables a utilizar.
+Explica correctamente cada una de las variables seleccionadas en el modelo y su utilidad en el modelo.
+Explica correctamente como funciona el modelo que utiliza y valida los supuestos del modelo.
+
+
+
+
+
+
+
+
